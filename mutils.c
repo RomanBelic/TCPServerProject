@@ -10,16 +10,6 @@
 #include <sys/socket.h>
 #include <string.h>
 
-int getlocaltime(char *tpointer){
-    
-    struct tm *timeinfo = calloc(1, sizeof(struct tm));
-    time_t rawtime;
-    time (&rawtime); 
-    timeinfo = localtime (&rawtime);
-    tpointer = asctime (timeinfo);
-    free(timeinfo);
-    return 1;
-}
 
 int find_maxnb(int* array){
     int maxnb = array[0];

@@ -47,84 +47,72 @@ struct s_socket init_server_socket(int port_number){
         shutdown(servsocket.sock_fd, SHUT_RDWR);
         close(servsocket.sock_fd);
         servsocket.sock_fd = -1;
-        perror(emsg);
+        perror(EMSG);
     }
     return servsocket;
 }
 
-char *getsockipv4(struct s_socket *client)
-{
-    char *sockip = calloc (sizeof(client->addr), sizeof(char));
-    inet_ntop(client->addr.sin_family, &(client->addr.sin_addr),sockip, sizeof(client->addr));
-    return sockip;
-}
-
 int communicate_multiprocess_mode(int cl_fd){
     char buff[256];
-    char cmd_pck = PRGS;
+    char cmd_pck;
     int bytesRead;
+    FILE *f = fopen("log.txt", "a"); 
     while ((bytesRead = recv(cl_fd, &buff, sizeof(buff), 0)) > 0) {   
-        memccpy(&cmd_pck, &buff, 1, sizeof(char));  
-        if (cmd_pck == FIN){
-            cmd_pck = ACK_FIN;
-            send(cl_fd, &cmd_pck, 1, 0); //send echo
-        }    
-        else if (cmd_pck == ACK_FIN){
-            shutdown(cl_fd, SHUT_WR);
-            break;
-        } 
-        else if (cmd_pck == FIN_SHD){
-            shutdown(cl_fd, SHUT_RDWR);
+        cmd_pck = buff[0];
+        if (cmd_pck == INCOMING){
+            cmd_pck = ACK_INCOMING;
+            send(cl_fd, &cmd_pck, sizeof(char), 0);
+        }
+        else if (cmd_pck == FIN_SHD || cmd_pck == ACK_FIN){
             break;
         }
         else {
-            FILE *f = fopen("log.txt", "a"); 
-            cmd_pck = PRGS;
-            fwrite(&buff, sizeof(char), bytesRead, f);        
+            fwrite(&buff, sizeof(char), bytesRead, f);   
+            fprintf(f, "%s", NEWLINE);
             fflush(f);
-            fclose(f);
-            send(cl_fd, &buff, bytesRead, 0); //send echo
+            cmd_pck = ACK;
+            send(cl_fd, &cmd_pck, sizeof(char), 0);
+            printf("%s size : %d bytesread : %d", buff, sizeof(buff),bytesRead);
+            fflush(stdout);
         }
     }
+    shutdown(cl_fd, SHUT_RDWR);
+    close(cl_fd);
+    fclose(f);
     return (int)cmd_pck;
 }
 
 int communicate_multiplex_mode(int cl_fd, struct client_stack *cl_stack, fd_set *socket_set){
-    char buff[256];
-    char cmd_pck = PRGS;
-    int bytesRead;
-    if ((bytesRead = recv(cl_fd, &buff, sizeof(buff), 0)) > 0) {   
-        memccpy(&cmd_pck, &buff, 1, sizeof(char));  
-        if (cmd_pck == FIN){
-            cmd_pck = ACK_FIN;
-            send(cl_fd, &cmd_pck, 1, 0); //send echo
-        }    
-        else if (cmd_pck == ACK_FIN){
-            shutdown(cl_fd, SHUT_WR);
-            close(cl_fd);
-            FD_CLR(cl_fd, socket_set);
-            delete_from_clarray(cl_fd, cl_stack);
-        } 
-        else if (cmd_pck == FIN_SHD){
-            shutdown(cl_fd, SHUT_RDWR);
-            close(cl_fd);
-            FD_CLR(cl_fd, socket_set);
-            delete_from_clarray(cl_fd, cl_stack);
+    char c_pck;
+    recv(cl_fd, &c_pck, sizeof(char), 0);
+       
+    if (c_pck == INCOMING){
+        c_pck = ACK_INCOMING;
+        send(cl_fd, &c_pck, sizeof(char), 0);
+    }   
+    else if (c_pck == FIN_SHD || c_pck == ACK_FIN){
+        shutdown(cl_fd, SHUT_RDWR);
+        close(cl_fd);
+        FD_CLR(cl_fd, socket_set);
+        delete_from_clarray(cl_fd, cl_stack);
+    } 
+    else {
+        int bytesRead;
+        char buff[256];
+        c_pck = ACK;
+        FILE *f = fopen("log.txt", "a"); 
+        while ((bytesRead = recv(cl_fd, &buff, sizeof(buff), 0)) > 0){
+            fwrite(&buff, sizeof(char), bytesRead, f);  
+            fprintf(f, "%s", NEWLINE);
+            send(cl_fd, &c_pck, sizeof(char), 0); //send echo
         }
-        else {
-            FILE *f = fopen("log.txt", "a"); 
-            cmd_pck = PRGS;
-            fwrite(&buff, sizeof(char), bytesRead, f);        
-            fflush(f);
-            fclose(f);
-            send(cl_fd, &buff, bytesRead, 0); //send echo
-        }
+        fflush(f);
+        fclose(f);
     }
-    return (int)cmd_pck;
+    return (int)c_pck;
 }
 
 int listen_for_connections (struct s_socket *server){
-
     volatile int isListening = 1;
     fd_set socket_set;
     fd_set mutator_set;
@@ -132,14 +120,14 @@ int listen_for_connections (struct s_socket *server){
     FD_ZERO(&mutator_set);
     FD_SET(server->sock_fd, &socket_set);
 
-    struct client_stack cl_stack = init_cl_stack(maxConnections);   
+    struct client_stack cl_stack = init_cl_stack(MaxSCons);   
     add_to_clarray(server->sock_fd, &cl_stack);
     
     int *act_process = mmap(NULL, sizeof(int), PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0);  //mapping this memblock to kernel to share between processes
     *act_process = 0;
         
     while (isListening){    
-        if (*act_process < maxMultiConnections){
+        if (*act_process < MaxMCons){
             listen_multiprocess_mode(server, act_process);
         }else {
             memcpy(&mutator_set, &socket_set, sizeof(socket_set)); 
@@ -152,23 +140,23 @@ int listen_for_connections (struct s_socket *server){
 
 int listen_multiplex_mode(struct s_socket *server, struct client_stack* cl_stack, fd_set *socket_set, fd_set *mutator_set){
     if (select(cl_stack->max_fd + 1, mutator_set, NULL, NULL, NULL) > 0){
+        int found_fd;
         if (FD_ISSET(server->sock_fd, mutator_set)){
             struct s_socket client = accept_client_socket(server);
             set_socket_mode(client.sock_fd, O_NONBLOCK);
             add_to_clarray(client.sock_fd, cl_stack);
             FD_SET(client.sock_fd, socket_set);
-            communicate_multiplex_mode(client.sock_fd, cl_stack, socket_set);
+            found_fd = client.sock_fd;
         }
         else {
             for (int i = 1; i < cl_stack->cl_limit; i++){ 
                 int clfd;
-                if ((clfd = cl_stack->cl_array[i]) > 0){
-                    if (FD_ISSET(clfd, mutator_set)){
-                        communicate_multiplex_mode(clfd, cl_stack, socket_set); //pas bon, car il faut un array des structures client *s_socket
-                    }
+                if ((clfd = cl_stack->cl_array[i]) > 0 && FD_ISSET(clfd, mutator_set)){
+                    found_fd = clfd;
                 }
             }
         }
+        communicate_multiplex_mode(found_fd, cl_stack, socket_set);
     }
     return 0;
 }
@@ -232,8 +220,6 @@ int listen_multiprocess_mode(struct s_socket *server, int* act_process){
         if (!comproc.isRoot){
             (*act_process)++;
             communicate_multiprocess_mode(client.sock_fd);
-            shutdown(client.sock_fd, SHUT_RDWR);
-            close(client.sock_fd);
             (*act_process)--;
             exit(EXIT_SUCCESS);
         }
@@ -242,7 +228,7 @@ int listen_multiprocess_mode(struct s_socket *server, int* act_process){
         }
     }
     else {
-        perror(emsg);
+        perror(EMSG);
     }
     return 0;
 }

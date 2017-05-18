@@ -31,7 +31,7 @@
 int main(int argc, char** argv) {
     struct process root = fork_process(-10);  
     if (!root.isRoot){  
-        struct s_socket server = init_server_socket(server_port);
+        struct s_socket server = init_server_socket(SERVER_PORT);
         if(server.sock_fd > 0){
            listen_for_connections(&server);
            shutdown(server.sock_fd, SHUT_RDWR);

@@ -41,7 +41,7 @@ struct process fork_process (int priority)
         root.parent_id -1;
         root.child_id = -1;
         root.isRoot = false;
-        perror(emsg);
+        perror(EMSG);
     } 
     
     return root;
