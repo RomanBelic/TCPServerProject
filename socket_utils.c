@@ -52,7 +52,7 @@ struct s_socket init_server_socket(int port_number){
 
 int communicate_multiprocess_mode(int cl_fd){
     char buff[256];
-    char cmd_pck;
+    char cmd_pck = FIN;
     int bytesRead;
     FILE *f = fopen("log.txt", "a"); 
     while ((bytesRead = recv(cl_fd, &buff, sizeof(buff), 0)) > 0) {   
@@ -68,10 +68,6 @@ int communicate_multiprocess_mode(int cl_fd){
             fwrite(&buff, sizeof(char), bytesRead, f);   
             fprintf(f, "%s", NEWLINE);
             fflush(f);
-            cmd_pck = ACK;
-            send(cl_fd, &cmd_pck, sizeof(char), 0);
-            printf(buff);
-            fflush(stdout);
         }
     }
     shutdown(cl_fd, SHUT_RDWR);
@@ -81,30 +77,35 @@ int communicate_multiprocess_mode(int cl_fd){
 }
 
 int communicate_multiplex_mode(int cl_fd, struct client_stack *cl_stack, fd_set *socket_set){
-    char c_pck;
-    recv(cl_fd, &c_pck, sizeof(char), 0);
-    if (c_pck == INCOMING){
-        c_pck = ACK_INCOMING;
-        send(cl_fd, &c_pck, sizeof(char), 0);
-    }   
-    else if (c_pck == FIN_SHD || c_pck == ACK_FIN){
+    int bytesRead;
+    char c_pck = '\0';
+    if ((bytesRead = recv(cl_fd, &c_pck, sizeof(char), 0)) > 0){
+        if (c_pck == INCOMING){
+            c_pck = ACK_INCOMING;
+            send(cl_fd, &c_pck, sizeof(char), 0);
+        }   
+        else if (c_pck == FIN_SHD || c_pck == ACK_FIN){
+            shutdown(cl_fd, SHUT_RDWR);
+            close(cl_fd);
+            FD_CLR(cl_fd, socket_set);
+            delete_from_clarray(cl_fd, cl_stack);
+        } 
+        else {
+            char buff[256];
+            c_pck = ACK;
+            FILE *f = fopen("log.txt", "a"); 
+            while ((bytesRead = recv(cl_fd, &buff, sizeof(buff), 0)) > 0){
+                fwrite(&buff, sizeof(char), bytesRead, f);  
+                fprintf(f, "%s", NEWLINE);
+            }
+            fflush(f);
+            fclose(f);
+        }
+    }else if (bytesRead == 0 && (int)c_pck == 0){
         shutdown(cl_fd, SHUT_RDWR);
         close(cl_fd);
         FD_CLR(cl_fd, socket_set);
         delete_from_clarray(cl_fd, cl_stack);
-    } 
-    else {
-        int bytesRead;
-        char buff[256];
-        c_pck = ACK;
-        FILE *f = fopen("log.txt", "a"); 
-        while ((bytesRead = recv(cl_fd, &buff, sizeof(buff), 0)) > 0){
-            fwrite(&buff, sizeof(char), bytesRead, f);  
-            fprintf(f, "%s", NEWLINE);
-            send(cl_fd, &c_pck, sizeof(char), 0); //send echo
-        }
-        fflush(f);
-        fclose(f);
     }
     return (int)c_pck;
 }
@@ -127,6 +128,8 @@ int listen_for_connections (struct s_socket *server){
             listen_multiprocess_mode(server, act_process);
         }else {
             memcpy(&mutator_set, &socket_set, sizeof(socket_set)); 
+            printf("multiplexing\n");
+            fflush(stdout);
             listen_multiplex_mode(server, &cl_stack, &socket_set, &mutator_set);
         }
     }
