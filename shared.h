@@ -38,5 +38,7 @@
 
 #define ACK_FIN ((char) 255)
 
+#define PING ((char) 249)
+
 #endif /* SHARED_H */
 

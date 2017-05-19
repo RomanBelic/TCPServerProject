@@ -41,6 +41,7 @@ int main(int argc, char** argv) {
     }
     else{        
         const char* cmd_exit = "STOP\0";
+        const char c_pck = FIN_SHD;
         char *msg = malloc(16 * sizeof(char));
         while(root.child_id > 0){
             listen_for_intput(msg);
@@ -52,6 +53,6 @@ int main(int argc, char** argv) {
         }
         free(msg);
     }
-    exit(EXIT_SUCCESS);;
+    exit(EXIT_SUCCESS);
 }
 

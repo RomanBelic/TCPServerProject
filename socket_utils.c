@@ -19,11 +19,9 @@
 #include "shared.h"
 
 struct s_socket init_server_socket(int port_number){
-    
     struct s_socket servsocket;
     memset(&servsocket, 0, sizeof(servsocket));
     int error = 0;
-    
     if ((servsocket.sock_fd = socket(AF_INET, SOCK_STREAM, 0)) > 0){
         servsocket.addr.sin_addr.s_addr = INADDR_ANY;
         servsocket.addr.sin_family = AF_INET;
@@ -66,13 +64,13 @@ int communicate_multiprocess_mode(int cl_fd){
         else if (cmd_pck == FIN_SHD || cmd_pck == ACK_FIN){
             break;
         }
-        else {
+        else if (bytesRead > sizeof(char)){
             fwrite(&buff, sizeof(char), bytesRead, f);   
             fprintf(f, "%s", NEWLINE);
             fflush(f);
             cmd_pck = ACK;
             send(cl_fd, &cmd_pck, sizeof(char), 0);
-            printf("%s size : %d bytesread : %d", buff, sizeof(buff),bytesRead);
+            printf(buff);
             fflush(stdout);
         }
     }
@@ -85,7 +83,6 @@ int communicate_multiprocess_mode(int cl_fd){
 int communicate_multiplex_mode(int cl_fd, struct client_stack *cl_stack, fd_set *socket_set){
     char c_pck;
     recv(cl_fd, &c_pck, sizeof(char), 0);
-       
     if (c_pck == INCOMING){
         c_pck = ACK_INCOMING;
         send(cl_fd, &c_pck, sizeof(char), 0);
@@ -113,7 +110,6 @@ int communicate_multiplex_mode(int cl_fd, struct client_stack *cl_stack, fd_set 
 }
 
 int listen_for_connections (struct s_socket *server){
-    volatile int isListening = 1;
     fd_set socket_set;
     fd_set mutator_set;
     FD_ZERO(&socket_set);
@@ -126,7 +122,7 @@ int listen_for_connections (struct s_socket *server){
     int *act_process = mmap(NULL, sizeof(int), PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0);  //mapping this memblock to kernel to share between processes
     *act_process = 0;
         
-    while (isListening){    
+    while (1){    
         if (*act_process < MaxMCons){
             listen_multiprocess_mode(server, act_process);
         }else {
@@ -213,7 +209,6 @@ struct s_socket accept_client_socket(struct s_socket *server){
 }
 
 int listen_multiprocess_mode(struct s_socket *server, int* act_process){
-    
     struct s_socket client = accept_client_socket(server);
     if (client.sock_fd > 0){
         struct process comproc = fork_process(-10);

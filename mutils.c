@@ -38,13 +38,13 @@ int listen_for_intput(char *output){
     fd_set fd;
     FD_ZERO(&fd);
     FD_SET(STDIN_FILENO, &fd);
-    char buffer[32];
+    char buffer[16];
     int nbRead;
     if (select(STDIN_FILENO + 1, &fd, NULL, NULL, NULL) > 0){
         if(FD_ISSET(STDIN_FILENO, &fd)){
             if((nbRead = read(STDIN_FILENO, buffer, sizeof(buffer))) > 0){
-                output = realloc(output, sizeof(char) * (nbRead-1));
-                memset(output, '\0', sizeof(output));
+                memset(output, '\0', 16);
+                realloc(output, sizeof(char) * (nbRead - 1));
                 memcpy(output, buffer, nbRead -1);
             }
         }
